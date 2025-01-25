@@ -4,126 +4,113 @@ const cors = require('cors');
 require('dotenv').config();
 
 app.use(cors());
-app.use(express.static('public'));
-app.use(express.json()); // for parsing JSON bodies
+app.use(express.json());  // To parse JSON request bodies
+app.use(express.urlencoded({ extended: true })); // To parse URL encoded form data
 
-// In-memory storage for users and their exercise logs
-let users = [];
-let exercises = {};
+// In-memory store for users and their exercises
+const users = {};
 
-// Create a new user
+// Route to create a new user
 app.post('/api/users', (req, res) => {
-  const username = req.body.username;
-  
-  // Check if the username already exists
+  const { username } = req.body;
   if (!username) {
     return res.status(400).json({ error: 'Username is required' });
   }
 
-  const newUser = {
+  // Create a unique user ID
+  const _id = Math.random().toString(36).substring(2, 15);
+
+  // Create the user object
+  users[_id] = {
+    _id,
     username,
-    _id: new Date().toISOString(), // Unique user ID
+    exercises: [],
   };
 
-  users.push(newUser);
-  res.json(newUser);
+  // Send response with username and user ID
+  res.json({ username, _id });
 });
 
-// Get all users
+// Route to get a list of all users
 app.get('/api/users', (req, res) => {
-  res.json(users);
+  const userList = Object.values(users); // Convert users object to an array
+  res.json(userList);
 });
 
-// Add an exercise to a user
+// Route to add an exercise for a user
 app.post('/api/users/:_id/exercises', (req, res) => {
-  const userId = req.params._id;
+  const { _id } = req.params;
   const { description, duration, date } = req.body;
 
-  // Ensure the duration is a number
-  const exerciseDuration = Number(duration);
-
-  // Validate the duration is a valid number
-  if (isNaN(exerciseDuration)) {
-    return res.status(400).json({ error: 'Duration must be a number' });
+  if (!description || !duration) {
+    return res.status(400).json({ error: 'Description and duration are required' });
   }
 
-  // Find user by ID
-  const user = users.find(user => user._id === userId);
+  const user = users[_id];
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
   }
 
-  // Create the exercise object
   const exercise = {
     description,
-    duration: exerciseDuration,
-    date: date ? new Date(date).toDateString() : new Date().toDateString(), // If no date is provided, use current date
+    duration: parseInt(duration),
+    date: date ? new Date(date) : new Date(),
   };
 
-  // Initialize user log if it doesn't exist
-  if (!exercises[userId]) {
-    exercises[userId] = [];
-  }
+  user.exercises.push(exercise);
 
-  // Add exercise to user's log
-  exercises[userId].push(exercise);
-
-  // Update user's exercise count
-  user.count = exercises[userId].length;
-
-  // Return the updated user with exercise details
+  // Return the updated user and exercise data
   res.json({
     username: user.username,
     _id: user._id,
     description: exercise.description,
     duration: exercise.duration,
-    date: exercise.date,
+    date: exercise.date.toDateString(),
   });
 });
 
-// Get the exercise log for a user
+// Route to get a user's exercise log
 app.get('/api/users/:_id/logs', (req, res) => {
-  const userId = req.params._id;
+  const { _id } = req.params;
   const { from, to, limit } = req.query;
 
-  // Find user by ID
-  const user = users.find(user => user._id === userId);
+  const user = users[_id];
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
   }
 
-  // Get the user's exercise log
-  let userLog = exercises[userId] || [];
+  let log = user.exercises;
 
-  // Filter by date if 'from' or 'to' are provided
-  if (from) {
-    const fromDate = new Date(from).getTime();
-    userLog = userLog.filter(exercise => new Date(exercise.date).getTime() >= fromDate);
-  }
-  if (to) {
-    const toDate = new Date(to).getTime();
-    userLog = userLog.filter(exercise => new Date(exercise.date).getTime() <= toDate);
+  // Filter by 'from' and 'to' dates if provided
+  if (from || to) {
+    log = log.filter(exercise => {
+      const exerciseDate = new Date(exercise.date);
+      return (
+        (from ? exerciseDate >= new Date(from) : true) &&
+        (to ? exerciseDate <= new Date(to) : true)
+      );
+    });
   }
 
-  // Limit the number of logs if 'limit' is provided
+  // Limit the number of log entries if the 'limit' is provided
   if (limit) {
-    userLog = userLog.slice(0, Number(limit));
+    log = log.slice(0, parseInt(limit));
   }
 
-  // Return the user object with the exercise log
+  // Return the user with exercise log and count
   res.json({
     _id: user._id,
     username: user.username,
-    count: userLog.length,
-    log: userLog.map(exercise => ({
+    count: log.length,
+    log: log.map(exercise => ({
       description: exercise.description,
       duration: exercise.duration,
-      date: exercise.date,
+      date: exercise.date.toDateString(),
     })),
   });
 });
 
-// Start the server
+// Server listening
 const listener = app.listen(process.env.PORT || 3000, () => {
   console.log('Your app is listening on port ' + listener.address().port);
 });
